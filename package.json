@@ -37,7 +37,8 @@
   "scripts": {
     "embed-prompt": "node scripts/embed-default-prompt.mjs",
     "build:client": "node scripts/build-client.mjs",
-    "test": "node scripts/self-test-complete-inject.mjs && node scripts/self-test-cwd-variable.mjs"
+    "test": "node scripts/self-test-complete-inject.mjs && node scripts/self-test-cwd-variable.mjs && node scripts/self-test-redteam-preset.mjs",
+    "test:preset": "node scripts/self-test-redteam-preset.mjs --self-test"
   },
   "license": "MIT",
   "keywords": [
