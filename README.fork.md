@@ -33,7 +33,30 @@
 | `lib/core.js` | 新增常量 `COMPLETE_PROMPT_SECTIONS_021`；给 #40 增加一个 **行级** replacement：只替换 `sections: completeSection === void 0 ? transformed.sections : [completeSection],` 这一行，`requiredContexts` 与 `contexts` 保持原样 |
 | `scripts/self-test-complete-inject.mjs` | 新增自测：正对照 + 反例 + 0.1.5 回归 + `node --check` + 行为验证 |
 | `scripts/install-local.sh` | 把本 fork 指到某个 DSH profile 的 `node_modules/dsh-purge`（备份原副本，可回滚） |
-| `package.json` | `version` → `1.1.72-fork.1`；`dshTarget` → `0.2.1-rc.2`；新增 `npm test` |
+| `package.json` | `version` → `1.1.72-fork.2`；`dshTarget` → `0.2.1-rc.2`；`npm test` 跑两个自测 |
+| `lib/identity.js` | `CWD_ONLY_SUFFIX` 清空；`isCwdOnlyText()` 改为按形状识别（含变量形态 + 目录词）；`stripHarnessPersona()` 不再回写 `{{cwd}}`；`overlayOfficialIdentity()` 的前缀分支也走 cwd-only 判定 |
+| `lib/core.js`（第二处） | 删掉从未被引用的 `ALLOW_EXEC_PERSONA_BLOCK` / `ALLOW_EXEC_PERSONA_LINE`（它们把 `{{cwd}}` 拼在执行句前，日后接回会直接炸装配） |
+| `scripts/self-test-cwd-variable.mjs` | 新增自测：拿宿主自己的 `renderPrompt` 当判据，证伪旧文本、验证新产物 |
+
+### 第二个补丁：`{{cwd}}` 让每次新会话装配失败
+
+上游 0.2.1 删掉了 `cwd` 提示词变量（工作目录改由 working-directory 服务的
+required runtime context 提供），而 0.2.1 的 `renderPrompt` 对未注册变量是**抛错**：
+
+```text
+unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix";
+registered variables: provider, model
+```
+
+本 fork 的 `lib/identity.js` 抄的是 0.2.0 那版常量（`"Your working directory is {{cwd}}."`），
+所以装配在 persona-suffix 这一步就死了；上游同一个文件里那段解释性注释本 fork 没跟过来。
+宿主自己的 `dsh-system-prompt/README.md` 在「Contribute a prompt variable」里也明说：
+自定义 persona 不能依赖 `{{cwd}}`，要把它从 `personaSuffix` / preset `suffix` 里删掉。
+
+修法（与上游一致）：常量清空，工作目录交给 runtime context；同时把判定从
+「只认两个字面量」放宽到「含未注册变量形态 + 目录词」，`stripHarnessPersona()`
+的两条替换也不再回写 `{{cwd}}`（否则剥完身份反而多出一个会抛错的变量）。
+
 
 替换后的 `sections` 语义，和 #40 原有的「已折进 persona」分支一致：
 
@@ -47,7 +70,10 @@
 ## 自测
 
 ```sh
+npm test        # 两个自测都跑
+# 或分开跑：
 node scripts/self-test-complete-inject.mjs
+node scripts/self-test-cwd-variable.mjs
 ```
 
 判据不是装饰，跑之前先看这几条会失败：
@@ -59,6 +85,18 @@ node scripts/self-test-complete-inject.mjs
 - **回归**：0.1.5 形态仍能匹配；
 - **语法**：补丁产物过 `node --check`；
 - **行为**：complete 模式注入回到最前；已含注入时不重复拼；`contexts` 过滤仍生效。
+
+`self-test-cwd-variable.mjs` 的判据取自**宿主自己的渲染器**（只读
+`Resources/app/.../dsh-system-prompt/lib/index.js` 里的 `renderPrompt`），所以不是
+「看代码像对」：
+
+- **正对照**：旧的 `"Your working directory is {{cwd}}."` 喂进去必须抛出那条真机错误
+  （字符串与真机逐字一致，含 `registered variables: provider, model`）—— 这条要是变绿，
+  说明夹具或渲染器不对，别的判据都不能信；
+- **修好**：`rewritePromptAssembly()` 的产物过同一台渲染器必须不抛错；
+- **兜底**：产物里不得残留任何 `{{…}}` 形态（不止 `cwd`）；
+- **回归**：旧文本经插件后也必须干净，而不是靠「换个来源」绕过去。
+
 
 ## 安装（本机）
 
@@ -121,7 +159,9 @@ parent 是上游 `YuJunZhiXue/dsh-purge`（`gh repo view --json isFork,parent` �
 2. 面板点「应用」，回包里 `complete` 应为 `true`（不再是「CMD 无感未钉入（unknown）」）；
 3. `hostPromptKeepsInject()` 对 `Resources/app/.../dsh-system-prompt/lib/index.js` 返回
    `true`（`node scripts/self-test-complete-inject.mjs` 末尾会打印真机只读自检）；
-4. 此后 `/dsh-purge/restart` 不再返回「清洗没有写进全部宿主」，密封包换包这条路恢复可用。
+4. `/dsh-purge/restart` 不再返回「清洗没有写进全部宿主」，密封包换包这条路恢复可用；
+5. 开一个新会话，不再出现 `unknown prompt variable "{{cwd}}" in section
+   "deployment:persona-suffix"`（`npm test` 里第二条自测就是这条的离线判据）。
 
 ## 不做的事
 
