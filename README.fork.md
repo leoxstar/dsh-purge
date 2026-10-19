@@ -106,8 +106,12 @@ node scripts/self-test-cwd-variable.mjs
 ```
 
 脚本只做两件事：把原 `node_modules/dsh-purge` 改名备份，再把本仓库软链过去。
-**不跑包管理器**——profile 里若重新 `pnpm install`，会因为 `package.json` 仍指向上游
-tarball 而把软链覆盖掉，装完再跑一次本脚本即可。
+**不跑包管理器**——profile 里若重新 `pnpm install`，会把软链换成从 GitHub 拉下来的
+tarball 副本（`package.json` 指向本 fork 的 `main`，所以拉下来的是**带补丁的**，不是上游），
+装完再跑一次本脚本即可回到软链。
+
+> 只想对齐 `pnpm-lock.yaml` 而不碰 `node_modules` 时用：
+> `pnpm install --lockfile-only`（实测不会动软链，只重算锁文件与 integrity）。
 
 安装后必须重启宿主（退出 DeepSeek Harness 再打开），插件才重新加载。
 
