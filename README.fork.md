@@ -81,6 +81,38 @@ mv ~/.dsh/profiles/desktop/node_modules/dsh-purge.upstream-<时间戳> \
    ~/.dsh/profiles/desktop/node_modules/dsh-purge
 ```
 
+## 远端布局与同步上游
+
+这是 GitHub 上真正的 fork：**[leoxstar/dsh-purge](https://github.com/leoxstar/dsh-purge)**，
+parent 是上游 `YuJunZhiXue/dsh-purge`（`gh repo view --json isFork,parent` 可验证）。
+
+| 远端 | 指向 | 用途 |
+|---|---|---|
+| `origin` | `leoxstar/dsh-purge` | 自己的 fork，日常推这里 |
+| `upstream` | `YuJunZhiXue/dsh-purge` | 上游，只 fetch，不 push |
+
+分支分工（**别把补丁放到 master**，否则 fork 同步就会冲突）：
+
+- `master`：上游镜像，永远 fast-forward，不落任何本地提交；
+- `fix/dsh-0.2.1-compat`：本 fork 的唯一改动，一个 commit。
+
+同步上游：
+
+```sh
+./scripts/sync-upstream.sh --dry-run   # 先看落后多少、上游有哪些新提交
+./scripts/sync-upstream.sh             # master 快进 + 修复分支 rebase + 推回 fork
+```
+
+脚本做的事：`git fetch upstream` → `master` fast-forward 到 `upstream/master` 并推送 →
+`fix/dsh-0.2.1-compat` rebase 到新 master → `push --force-with-lease`。
+冲突只会出现在 #40 那一段附近；放弃用 `git rebase --abort`，回退用脚本打印的旧 commit。
+
+也可以在 GitHub 页面上点 **Sync fork** / `gh repo sync leoxstar/dsh-purge`
+——那只同步 `master`（默认分支），修复分支仍需上面的 rebase。
+
+装回 profile 的始终是本地工作区（软链），所以同步完**不需要重新安装**：切到
+`fix/dsh-0.2.1-compat` 分支即可，重启宿主后生效。
+
 ## 验证是否真的修好
 
 重启后：
