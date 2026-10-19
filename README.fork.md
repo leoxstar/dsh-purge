@@ -129,24 +129,35 @@ parent 是上游 `YuJunZhiXue/dsh-purge`（`gh repo view --json isFork,parent` �
 | `origin` | `leoxstar/dsh-purge` | 自己的 fork，日常推这里 |
 | `upstream` | `YuJunZhiXue/dsh-purge` | 上游，只 fetch，不 push |
 
-分支分工（**别把补丁放到 master**，否则 fork 同步就会冲突）：
+分支分工（**别把补丁放到 `main`**，否则 fork 同步就会冲突）：
 
-- `master`：上游镜像，永远 fast-forward，不落任何本地提交；
-- `fix/dsh-0.2.1-compat`：本 fork 的唯一改动，一个 commit。
+- `main`：上游 `master` 的镜像，永远 fast-forward，不落任何本地提交；
+- `fix/dsh-0.2.1-compat`：本 fork 的唯一改动，两个 commit。
+
+> 分支名对不上的原因（2026-10-19 改）：**上游叫 `master`，本 fork 叫 `main`**。
+> 上游是别人的仓库，改不了；本 fork 的默认分支已从 `master` 改名为 `main`，
+> 远端 `master` 已删除（本地 `origin/master` 跟踪引用也 prune 掉了）。
+> 所以 `sync-upstream.sh` 里两边各用一个名字：本地 `main` 跟踪 `origin/main`，
+> 快进时从 `upstream/master` 取。脚本顶部两个变量 `MIRROR` / `UPSTREAM` 可覆盖。
+>
+> ⚠️ `package.json` 与 `README.md` / `README.en.md` / `README.zh-CN.md` 里那些
+> `refs/heads/master.tar.gz` 链接指的是**上游**，不要跟着改成 `main` —— 上游没有 main，
+> 改了就是死链。
 
 同步上游：
 
 ```sh
 ./scripts/sync-upstream.sh --dry-run   # 先看落后多少、上游有哪些新提交
-./scripts/sync-upstream.sh             # master 快进 + 修复分支 rebase + 推回 fork
+./scripts/sync-upstream.sh             # main 快进 + 修复分支 rebase + 推回 fork
 ```
 
-脚本做的事：`git fetch upstream` → `master` fast-forward 到 `upstream/master` 并推送 →
-`fix/dsh-0.2.1-compat` rebase 到新 master → `push --force-with-lease`。
+脚本做的事：`git fetch upstream` → `main` fast-forward 到 `upstream/master` 并推送 →
+`fix/dsh-0.2.1-compat` rebase 到新 `main` → `push --force-with-lease`。
 冲突只会出现在 #40 那一段附近；放弃用 `git rebase --abort`，回退用脚本打印的旧 commit。
 
 也可以在 GitHub 页面上点 **Sync fork** / `gh repo sync leoxstar/dsh-purge`
-——那只同步 `master`（默认分支），修复分支仍需上面的 rebase。
+—— 它同步的是两边各自的**默认分支**（上游 `master` → 本 fork `main`），
+修复分支仍需上面的 rebase。
 
 装回 profile 的始终是本地工作区（软链），所以同步完**不需要重新安装**：切到
 `fix/dsh-0.2.1-compat` 分支即可，重启宿主后生效。
@@ -168,4 +179,5 @@ parent 是上游 `YuJunZhiXue/dsh-purge`（`gh repo view --json isFork,parent` �
 - 不改包名 `dsh-purge`（profile 的 bundle 列表按名字引用）。
 - 不改提示词内容、不改演练台、不新增任何能力。
 - 不追上游新版本；要跟时 `git fetch upstream && git rebase upstream/master`，冲突只会在
-  #40 这一段附近。
+  #40 这一段附近（rebase 的基底用 `upstream/master`，不是本地 `main`——两者内容相同，
+  但直接写上游名就不用先切分支）。
