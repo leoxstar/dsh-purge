@@ -37,6 +37,7 @@
 | `lib/identity.js` | `CWD_ONLY_SUFFIX` 清空；`isCwdOnlyText()` 改为按形状识别（含变量形态 + 目录词）；`stripHarnessPersona()` 不再回写 `{{cwd}}`；`overlayOfficialIdentity()` 的前缀分支也走 cwd-only 判定 |
 | `lib/core.js`（第二处） | 删掉从未被引用的 `ALLOW_EXEC_PERSONA_BLOCK` / `ALLOW_EXEC_PERSONA_LINE`（它们把 `{{cwd}}` 拼在执行句前，日后接回会直接炸装配） |
 | `scripts/self-test-cwd-variable.mjs` | 新增自测：拿宿主自己的 `renderPrompt` 当判据，证伪旧文本、验证新产物 |
+| `presets/redteam/agent.cordis.yml` + 已安装副本 | 删掉 `tool-subagent.config.toolFilter`（0.2.1 已废弃，宿主直接 throw）；`~/.dsh/.agent-presets/redteam/agent.cordis.yml` 同步改写 |
 
 ### 第二个补丁：`{{cwd}}` 让每次新会话装配失败
 
@@ -66,6 +67,38 @@ registered variables: provider, model
 
 产物同时写入两个标记：`[dsh-purge] complete prompt keeps inject`（宿主清洁判据要认）
 与 `fold-complete inject first`（#40 自己的 markers）。
+
+### 第三个补丁：红队模式在 0.2.1 上注册失败
+
+`~/.dsh/redteam/preset-declare.json` 原本停在：
+
+```json
+{ "ok": false, "phase": "registered-broken",
+  "broken": "tool-subagent: toolFilter is no longer supported; configure persona and tool
+             plugins in an Agent Preset and select it with agentPreset (spawn only)" }
+```
+
+宿主 `dsh-tool-subagent/lib/index.js` 第 355 行直接抛：
+
+```js
+for (const field of ["persona", "toolFilter"]) if (Object.hasOwn(config, field)) throw new Error(...)
+```
+
+预设原本用 `toolFilter.deny: [subagent_fork, workflow, ralph]` 把委派工具从子会话摘掉 ——
+0.2.0 的写法。0.2.1 只要看到这个键就让整个预设 broken，`redteam_*` 一个都挂不上
+（演练台面板本身不受影响）。
+
+改法：删掉 `toolFilter` 段，保留 `maxDepth: 1` 兜住递归。代价是子会话仍能看见
+`subagent_fork / workflow / ralph` 这几个工具名；要恢复那层隔离，得按新 API 另建子预设、
+用 `agentPreset` 指过去（尚未做）。
+
+验证（2026-10-19 16:51:35 重启后）：
+
+```text
+preset-declare.json → ok: true, phase: registered, plugins: 19, broken: null
+19 条插件行         → 全部可解析（workflow-worker-thread 本就 disabled: true）
+tools.js + 桩 ctx   → 注册出 56 个 redteam_* 工具
+```
 
 ## 自测
 
