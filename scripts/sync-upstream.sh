@@ -1,21 +1,22 @@
 #!/bin/bash
-# 同步上游：main 快进到 upstream/master，再把修复分支 rebase 上去并推回 fork。
+# 同步上游：把 upstream/master 合并进 main（本 fork 自己的分支），再推回 fork。
 #
 #   ./scripts/sync-upstream.sh            # 同步并推送
 #   ./scripts/sync-upstream.sh --dry-run  # 只看差多少，不动任何东西
 #
+# 分支模型（2026-10-19 起）：
+#   · `main` 是本 fork 唯一的分支，**带本地补丁**（不是纯镜像）；
+#   · 上游 YuJunZhiXue/dsh-purge 的默认分支叫 `master`（别人的仓库，改不了）；
+#   · 所以两边名字不同，同步是 **merge**，不是 fast-forward。
+#
+# ⚠️ 因此 GitHub 的 **Sync fork** 按钮 / `gh repo sync` 都用不了：它们只做
+# fast-forward，而 main 有本地提交必然分叉。同步只能走本脚本。
+#
 # 冲突只会出现在 #40 那一段附近（见 README.fork.md「改了什么」）。
 # 想回退：脚本会打印同步前的 commit，`git reset --hard <commit>`。
-#
-# 分支名注意：**上游用 `master`，本 fork 用 `main`**。这不是笔误 ——
-# 上游 YuJunZhiXue/dsh-purge 的默认分支叫 master，改不了（别人的仓库）；
-# 本 fork 的镜像分支从 2026-10-19 起叫 main，`origin/master` 已删除。
-# 所以脚本里两边各用一个名字：本地 `main` 跟踪 `origin/main`，
-# 快进时从 `upstream/master` 取。
 set -euo pipefail
 
-BRANCH="${BRANCH:-fix/dsh-0.2.1-compat}"
-MIRROR="${MIRROR:-main}"      # 本 fork 的镜像分支（= 上游 master 的内容）
+MIRROR="${MIRROR:-main}"       # 本 fork 的分支（带补丁）
 UPSTREAM="${UPSTREAM:-master}" # 上游仓库自己的分支名，别改
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
@@ -25,33 +26,37 @@ cd "$(git rev-parse --show-toplevel)"
 git fetch upstream --prune
 git fetch origin --prune
 
-echo "$MIRROR   : $(git rev-parse --short "$MIRROR")  →  upstream/$UPSTREAM $(git rev-parse --short "upstream/$UPSTREAM")"
-echo "$BRANCH: $(git rev-parse --short "$BRANCH")"
-echo "落后上游的提交: $(git rev-list --count "$MIRROR..upstream/$UPSTREAM")"
+echo "$MIRROR : $(git rev-parse --short "$MIRROR")"
+echo "upstream/$UPSTREAM: $(git rev-parse --short "upstream/$UPSTREAM")"
+echo "上游新提交: $(git rev-list --count "upstream/$UPSTREAM" --not "$MIRROR")  本分支独有: $(git rev-list --count "$MIRROR" --not "upstream/$UPSTREAM")"
 
 if [ "$DRY" = "1" ]; then
-  git log --oneline "$MIRROR..upstream/$UPSTREAM" | head -10
+  echo "--- 上游有、本分支没有的提交 ---"
+  git log --oneline "upstream/$UPSTREAM" --not "$MIRROR" | head -10
+  echo "--- 本分支有、上游没有的提交（就是我们的补丁）---"
+  git log --oneline "$MIRROR" --not "upstream/$UPSTREAM" | head -10
   exit 0
 fi
 
-BEFORE="$(git rev-parse "$BRANCH")"
+BEFORE="$(git rev-parse "$MIRROR")"
 if [ -n "$(git status --porcelain)" ]; then
   echo "工作区有未提交改动，先提交或 stash 再来" >&2
   exit 1
 fi
 
 git checkout -q "$MIRROR"
-git merge --ff-only "upstream/$UPSTREAM"
-git push origin "$MIRROR"
-
-git checkout -q "$BRANCH"
-if ! git rebase "$MIRROR"; then
+if ! git merge --no-edit "upstream/$UPSTREAM"; then
   echo
-  echo "rebase 冲突。解决后 git rebase --continue；想放弃：git rebase --abort" >&2
-  echo "同步前的 $BRANCH = $BEFORE" >&2
+  echo "合并冲突。解决后 git commit；想放弃：git merge --abort" >&2
+  echo "同步前的 $MIRROR = $BEFORE" >&2
   exit 1
 fi
 
-echo "已同步: $MIRROR=$(git rev-parse --short "$MIRROR")  $BRANCH $(git rev-parse --short "$BEFORE") -> $(git rev-parse --short "$BRANCH")"
-git push --force-with-lease origin "$BRANCH"
-echo "回滚: git reset --hard $BEFORE   # 再 git push --force-with-lease origin $BRANCH"
+if [ "$(git rev-parse "$MIRROR")" = "$BEFORE" ]; then
+  echo "已是最新，没有要合并的上游提交"
+  exit 0
+fi
+
+git push origin "$MIRROR"
+echo "已同步: $MIRROR $(git rev-parse --short "$BEFORE") -> $(git rev-parse --short "$MIRROR")"
+echo "回滚: git reset --hard $BEFORE   # 再 git push --force-with-lease origin $MIRROR"
