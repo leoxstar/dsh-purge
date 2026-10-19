@@ -126,11 +126,22 @@ check("回归：旧 persona-suffix 输入经插件后也不再有 {{cwd}}", oldJ
 
 // ---------- 6. 反例：不能把真内容当 cwd-only 清掉 ----------
 // 这两条是 #5 的镜像：上面的"归零"判据要是宽过头，用户自备的 persona 会被删。
-/** 改写后「persona-suffix 段」的文本；找不到就是 undefined。 */
-function suffixSectionText(suffixText) {
-  const out = rewritePromptAssembly(assemblyWith(suffixText), { fallbackInject: "", context: {} });
-  const found = (out?.sections ?? []).find((s) => s?.name === "deployment:persona-suffix");
+/** 改写后某一段的文本；找不到就是 undefined。 */
+function sectionText(name, text) {
+  const out = rewritePromptAssembly(assemblyWith(text), { fallbackInject: "", context: {} });
+  const found = (out?.sections ?? []).find((s) => s?.name === name);
   return typeof found?.text === "string" ? found.text : undefined;
+}
+/** 同上，但把文本放到 persona-**prefix** 段（assemblyWith 默认放 suffix）。 */
+function prefixSectionText(text) {
+  const asm = assemblyWith("");
+  asm.sections = asm.sections.map((s) => (s.name === "deployment:persona-prefix" ? { ...s, text } : s));
+  const out = rewritePromptAssembly(asm, { fallbackInject: "", context: {} });
+  const found = (out?.sections ?? []).find((s) => s?.name === "deployment:persona-prefix");
+  return typeof found?.text === "string" ? found.text : undefined;
+}
+function suffixSectionText(suffixText) {
+  return sectionText("deployment:persona-suffix", suffixText);
 }
 const custom = "Working directory matters: follow {these} instructions literally.";
 check(
@@ -143,6 +154,21 @@ check(
   "反例：只是提到工作目录的普通句子必须原样保留",
   suffixSectionText(unrelated)?.includes(unrelated) === true,
   JSON.stringify(suffixSectionText(unrelated)),
+);
+
+// 这条是真踩到过的回归：判据一开始写成「任意 {{…}} + 目录词」，结果把
+// 「你是 {{model}} 驱动的红队指挥，工作目录由运行时上下文给出」整段归零。
+const redteamish = "## 指挥职责\n你的工作目录由运行时上下文给出。你是 {{model}} 驱动的红队指挥，不要动手。";
+check(
+  "反例：{{model}} + 目录词的人设不得被当成 cwd 样板句清掉",
+  prefixSectionText(redteamish)?.includes("红队指挥") === true,
+  JSON.stringify(prefixSectionText(redteamish)),
+);
+// 而真正的 cwd 样板句（带 cwd 令牌）在 suffix 上仍然要归零。
+check(
+  "正例：带 cwd 令牌的样板句仍然归零",
+  suffixSectionText("Your working directory is {{cwd}}.") === "",
+  JSON.stringify(suffixSectionText("Your working directory is {{cwd}}.")),
 );
 
 console.log(failed === 0 ? "\n全部通过 / all passed" : `\n失败 ${failed} 项 / ${failed} failed`);
